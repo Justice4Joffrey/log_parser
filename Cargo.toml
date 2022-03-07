@@ -1,0 +1,32 @@
+[package]
+name = "log_parser"
+version = "0.1.0"
+edition = "2021"
+
+authors = ["Otto <otto.castle1@gmail.com>"] 
+
+[dependencies]
+async-trait = "0.1.52"
+bytesize = "1.1.0"
+clap = { version = "3.1.5", features = ["derive"] }
+colored = "2.0.0"
+console-subscriber = { version = "0.1.3", optional = true }
+itertools = "0.10.3"
+lazy_static = "1.4.0"
+rayon = "1.5.1"
+regex = "1.5.4"
+serde = { version = "1.0.136", features = ["derive"] }
+serde_json = "1.0.79"
+tabwriter = "1.2.1"
+tokio = { version = "1.17.0", features = ["fs", "macros", "rt-multi-thread", "io-util", "sync", "tracing"] }
+
+[features]
+default = []
+console = ["console-subscriber"]
+
+[dev-dependencies]
+criterion = { version = "0.3", features = ["html_reports", "async_tokio"] }
+
+[[bench]]
+name = "benches"
+harness = false
