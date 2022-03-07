@@ -4,7 +4,7 @@ use crate::{Parser, Summarizer, Summary, DEFAULT_DELIMITER};
 use byte_lines::ByteLinesExt;
 pub use error::AsyncBufReaderSummarizerError;
 use tokio::fs::File;
-use tokio::io;
+
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
 
@@ -77,37 +77,36 @@ impl Summarizer for AsyncBufReaderSummarizer {
                     tokio::sync::mpsc::channel::<Summary<Self::ParserError>>(reducer_channel_size);
 
                 // the reader task which spawns the mappers
-                let reader_handle: JoinHandle<io::Result<()>> = tokio::spawn(async move {
-                    let file = File::open(logfile).await?;
-                    let meta = file.metadata().await?;
-                    let mut reader = AsyncBatchReader::new(file, batch_size, delim);
-                    // Preallocate this based on the file size vs batch size. Add one to account for truncating
-                    let mut handles =
-                        Vec::with_capacity(((meta.len() / batch_size as u64) + 1) as usize);
-                    while let Some(data) = reader.read_batch().await? {
-                        let tx = tx.clone();
-                        // spawn a mapper task per batch
-                        handles.push(tokio::spawn(async move {
-                            let mut summary = Summary::new();
-                            for line in data.byte_lines(delim) {
-                                if let Ok(meta) = P::parse(line) {
-                                    summary.accumulate(&meta);
-                                } else {
-                                    summary.register_error(1);
+                let reader_handle: JoinHandle<Result<(), AsyncBufReaderSummarizerError>> =
+                    tokio::spawn(async move {
+                        let file = File::open(logfile).await?;
+                        let meta = file.metadata().await?;
+                        let mut reader = AsyncBatchReader::new(file, batch_size, delim);
+                        // Preallocate this based on the file size vs batch size. Add one to account for truncating
+                        let mut handles =
+                            Vec::with_capacity(((meta.len() / batch_size as u64) + 1) as usize);
+                        while let Some(data) = reader.read_batch().await? {
+                            let tx = tx.clone();
+                            // spawn a mapper task per batch
+                            handles.push(tokio::spawn(async move {
+                                let mut summary = Summary::new();
+                                for line in data.byte_lines(delim) {
+                                    if let Ok(meta) = P::parse(line) {
+                                        summary.accumulate(&meta);
+                                    } else {
+                                        summary.register_error(1);
+                                    }
                                 }
-                            }
-                            tx.send(summary)
-                                .await
-                                .expect("Failed to send summary data between threads");
-                        }));
-                    }
-                    // await all tasks (don't worry, they're not lazy)
-                    // propagate any errors up the chain
-                    for handle in handles {
-                        handle.await?;
-                    }
-                    Ok(())
-                });
+                                tx.send(summary).await
+                            }));
+                        }
+                        // await all tasks (don't worry, they're not lazy)
+                        // propagate any errors up the chain
+                        for handle in handles {
+                            handle.await??;
+                        }
+                        Ok(())
+                    });
 
                 // the reducer task which listens to rx until there are no
                 // more senders
